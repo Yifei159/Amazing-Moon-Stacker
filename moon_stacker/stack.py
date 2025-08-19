@@ -12,3 +12,4 @@ def unsharp_mask(img16, amount=0.5, sigma=1.2):
     sharp = cv2.addWeighted(img, 1 + amount, blur, -amount, 0)
     sharp = np.clip(sharp, 0, 65535).astype(np.uint16)
     return sharp
+# latest update: updated alignment logic 2025-08-20 00:28:14 AEST
