@@ -1,0 +1,111 @@
+name: auto update
+
+on:
+  schedule:
+    - cron: "5 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+env:
+  TZ: Australia/Brisbane
+  START_DATE: "2025-08-20"
+  FILE_PATH: "moon_stacker/stack.py"
+
+jobs:
+  commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Decide whether to commit (ramp-up & weekday filter)
+        id: schedule
+        shell: bash
+        run: |
+          set -e
+
+          DOW=$(TZ="$TZ" date +%u)
+          if [[ "$DOW" == "6" || "$DOW" == "7" ]]; then
+            echo "should_commit=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          TODAY=$(TZ="$TZ" date +%Y-%m-%d)
+          SEC_TODAY=$(TZ="$TZ" date -d "$TODAY 00:00" +%s)
+          SEC_START=$(TZ="$TZ" date -d "$START_DATE 00:00" +%s || true)
+
+          if [[ -z "$SEC_START" ]]; then
+            echo "START_DATE is invalid. Please set env START_DATE as YYYY-MM-DD."
+            echo "should_commit=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          DIFF_DAYS=$(( (SEC_TODAY - SEC_START) / 86400 ))
+          if (( DIFF_DAYS < 0 )); then
+            DIFF_DAYS=0
+          fi
+
+          if (( DIFF_DAYS < 7 )); then
+            COMMITS_PER_DAY=$(( DIFF_DAYS + 1 ))
+          else
+            COMMITS_PER_DAY=1
+          fi
+
+          HOUR=$(TZ="$TZ" date +%H)
+          HOUR10=$((10#$HOUR))
+          SHOULD=false
+          for ((i=0; i<COMMITS_PER_DAY; i++)); do
+            h=$(( (i * 24) / COMMITS_PER_DAY ))
+            if (( HOUR10 == h )); then
+              SHOULD=true
+              break
+            fi
+          done
+
+          if [[ "$SHOULD" == "true" ]]; then
+            echo "should_commit=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_commit=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Ensure target file exists
+        if: steps.schedule.outputs.should_commit == 'true'
+        run: |
+          if [[ ! -f "$FILE_PATH" ]]; then
+            echo "::error::Target file '$FILE_PATH' does not exist in the repository."
+            exit 1
+          fi
+
+      - name: Set Git identity
+        if: steps.schedule.outputs.should_commit == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Update timestamp comment in target file
+        if: steps.schedule.outputs.should_commit == 'true'
+        shell: bash
+        run: |
+          TS_LOCAL=$(TZ="$TZ" date +"%Y-%m-%d %H:%M:%S %Z")
+          PATTERN='^# latest update: updated alignment logic'
+          NEWLINE="# latest update: updated alignment logic $TS_LOCAL"
+
+          if grep -qE "$PATTERN" "$FILE_PATH"; then
+            sed -i "s|$PATTERN.*|$NEWLINE|" "$FILE_PATH"
+          else
+            tail -c1 "$FILE_PATH" | read -r _ || echo >> "$FILE_PATH"
+            echo "$NEWLINE" >> "$FILE_PATH"
+          fi
+
+      - name: Commit changes (if any)
+        if: steps.schedule.outputs.should_commit == 'true'
+        run: |
+          if [ -n "$(git status --porcelain "$FILE_PATH")" ]; then
+            git add "$FILE_PATH"
+            git commit -m "chore: heartbeat ($(TZ="$TZ" date +%Y-%m-%d))"
+            git push
+          else
+            echo "No changes to commit."
+          fi
