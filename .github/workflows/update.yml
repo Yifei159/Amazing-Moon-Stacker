@@ -78,11 +78,15 @@ jobs:
             exit 1
           fi
 
-      - name: Set Git identity
+      - name: Set Git identity (as you)
         if: steps.schedule.outputs.should_commit == 'true'
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "${{ secrets.GIT_USER_NAME }}"
+          git config user.email "${{ secrets.GIT_USER_EMAIL }}"
+          export GIT_AUTHOR_NAME="${{ secrets.GIT_USER_NAME }}"
+          export GIT_AUTHOR_EMAIL="${{ secrets.GIT_USER_EMAIL }}"
+          export GIT_COMMITTER_NAME="${{ secrets.GIT_USER_NAME }}"
+          export GIT_COMMITTER_EMAIL="${{ secrets.GIT_USER_EMAIL }}"
 
       - name: Update timestamp comment in target file
         if: steps.schedule.outputs.should_commit == 'true'
@@ -104,7 +108,9 @@ jobs:
         run: |
           if [ -n "$(git status --porcelain "$FILE_PATH")" ]; then
             git add "$FILE_PATH"
-            git commit -m "chore: heartbeat ($(TZ="$TZ" date +%Y-%m-%d))"
+            git commit -m "chore: heartbeat ($(TZ="$TZ" date +%Y-%m-%d))
+
+Co-authored-by: ${{ secrets.GIT_USER_NAME }} <${{ secrets.GIT_USER_EMAIL }}>"
             git push
           else
             echo "No changes to commit."
